@@ -10,7 +10,7 @@ This Docker image provides a comprehensive Python library and orchestration fram
 
 ### Core Components
 
-**DAG Template Generator**: Creates Airflow DAGs from configurable templates supporting multiple operator types (GKE, K8s, API, Bash) with environment-specific configurations.
+**DAG Template Generator**: Creates Airflow DAGs from configurable templates supporting multiple operator types (GKE, K8s, API, Bash) with environment-specific configurations. Used for https://pypi.org/project/fast-bi-dbt-runner/
 
 **Manifest Parser**: Analyzes dbt project manifest.json files to automatically generate task groups and dependencies for Airflow workflows.
 
