@@ -8,7 +8,7 @@ ARG build_for=linux/amd64
 
 ##
 # base image (abstract)
-FROM --platform=$build_for python:3.11.11-slim-bullseye as base
+FROM --platform=$build_for python:3.11.14-slim-bullseye as base
 LABEL maintainer=support@fast.bi
 
 # System setup and dependencies installation

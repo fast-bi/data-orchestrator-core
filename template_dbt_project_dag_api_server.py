@@ -3,6 +3,7 @@ import json
 import re
 import os
 from datetime import timedelta, date, datetime
+import pendulum
 from airflow import models
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.utils.dates import days_ago
@@ -109,6 +110,15 @@ DAG_SCHEDULE_INTERVAL = airflow_vars.get("DAG_SCHEDULE_INTERVAL")
 # EXTERNAL_RUN_DATETIME_FORMAT = "%Y-%m-%d"
 # AIRFLOW_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S.%f+00:00"
 
+# Get timezone from Airflow config or fallback to variable
+try:
+    from airflow.configuration import conf
+    DAG_TIMEZONE = conf.get('core', 'default_timezone', fallback=None)
+    if not DAG_TIMEZONE or DAG_TIMEZONE == 'system':
+        DAG_TIMEZONE = airflow_vars.get("DAG_TIMEZONE", "UTC")
+except Exception:
+    DAG_TIMEZONE = airflow_vars.get("DAG_TIMEZONE", "UTC")
+
 xcom_execution_date = '{{ti.xcom_pull(task_ids="show_input_data", key="execution_date")}}'
 xcom_full_refresh_model_name = '{{ti.xcom_pull(task_ids="show_input_data", key="full_refresh_model_name")}}'
 
@@ -132,6 +142,15 @@ try:
 except ValueError as e:
     raise ValueError(f"Error in START_DATE: {e}")
 
+# Convert start_date to timezone-aware datetime
+dag_tz = pendulum.timezone(DAG_TIMEZONE)
+if START_DATE.tzinfo is None:
+    # If start_date is naive, localize it to the specified timezone
+    START_DATE = pendulum.instance(START_DATE).in_timezone(dag_tz)
+else:
+    # If start_date already has timezone, convert it to the specified timezone
+    START_DATE = pendulum.instance(START_DATE).in_timezone(dag_tz)
+
 airbyte_builder = TaskBuilder(
     connection_ids=AIRBYTE_CONNECTION_IDS
 )
@@ -139,6 +158,7 @@ airbyte_builder = TaskBuilder(
 # Create a DAG Object
 with models.DAG(
         DAG_ID,  # dag id
+        catchup=False, # disable catchup
         schedule_interval=DAG_SCHEDULE_INTERVAL,  # override to match your needs
         start_date=START_DATE,  # start date, parameter, this is the
         description=f"Release: {DBT_WORKLOAD_API_RELEASE}",
