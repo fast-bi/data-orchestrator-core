@@ -78,6 +78,7 @@ DBT_SEED = convert_to_lower(airflow_vars.get("DBT_SEED"))
 DBT_SEED_SHARDING = convert_to_lower(airflow_vars.get("DBT_SEED_SHARDING"))
 DBT_SOURCE = convert_to_lower(airflow_vars.get("DBT_SOURCE", "True"))
 DBT_SOURCE_SHARDING = convert_to_lower(airflow_vars.get("DBT_SOURCE_SHARDING", "True"))
+DBT_DEPS = convert_to_lower(airflow_vars.get("DBT_DEPS", "True"))
 DATA_QUALITY = convert_to_lower(airflow_vars.get("DATA_QUALITY"))
 DAG_OWNER = airflow_vars.get("DAG_OWNER", "fast.bi")
 DAG_START_DATE = airflow_vars.get("DAG_START_DATE", "days_ago(1)")
@@ -223,24 +224,34 @@ with models.DAG(
             Variable.set(key=f"temp_var_{DAG_ID}", value=json.dumps(temp_dict))
         kwargs["ti"].xcom_push(key="execution_date", value=datetime_argument)
 
-    dbt_deps_task = dag_parser.create_dbt_bash_task(
-        dbt_command="deps",
-        node_name="install_dbt_dependencies",
-        node_alias="install_dbt_dependencies",
-        running_rule=TriggerRule.ALL_SUCCESS,
-    )
-    
     show_input_data = PythonOperator(
         task_id="show_input_data",
         python_callable=f_show_input_data,
         provide_context=True,
     )
+
+    # Optional Airbyte group at the very beginning of the DAG
     if AIRBYTE_CONNECTION_IDS and AIRBYTE_REPLICATION_FLAG:
         airbyte_group = airbyte_builder.build_tasks(
             connection_ids=AIRBYTE_CONNECTION_IDS
         )
-        airbyte_group >> dbt_deps_task
+        upstream_task = airbyte_group
+    else:
+        upstream_task = None
 
+
+    # Optionally install dbt dependencies (dbt deps) at the beginning of the DAG.
+    # Controlled via Airflow variable DBT_DEPS (default: True).
+    if DBT_DEPS == "true":
+        dbt_deps_task = dag_parser.create_dbt_bash_task(
+            dbt_command="deps",
+            node_name="install_dbt_dependencies",
+            node_alias="install_dbt_dependencies",
+            running_rule=TriggerRule.ALL_SUCCESS,
+        )
+        if upstream_task:
+            upstream_task >> dbt_deps_task
+        upstream_task = dbt_deps_task
 
     # Add debug task if DEBUG is true
     if airflow_vars.get("DEBUG", "").lower() == "true":
@@ -250,9 +261,13 @@ with models.DAG(
             node_alias="check_datawarehouse_connection",
             running_rule=TriggerRule.ALL_SUCCESS,
         )
-        dbt_deps_task >> dbt_debug_task >> show_input_data
+        if upstream_task:
+            upstream_task >> dbt_debug_task >> show_input_data
+        else:
+            dbt_debug_task >> show_input_data
     else:
-        dbt_deps_task >> show_input_data
+        if upstream_task:
+            upstream_task >> show_input_data
 
     task_list = []
     temp_var = Variable.get(f"temp_var_{DAG_ID}", deserialize_json=True, default_var=None)
