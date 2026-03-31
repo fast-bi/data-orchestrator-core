@@ -5,11 +5,32 @@
 
 # Top level build args
 ARG build_for=linux/amd64
+# v1.35.3 uses Go 1.25.7 which contains the fix for CVE-2025-68121 (stdlib crypto/tls)
+ARG KUBECTL_VERSION=v1.35.3
+
+##
+# Pull Google Cloud SDK from the official image.
+# This avoids the brittle apt-key / packages.cloud.google.com setup entirely.
+FROM --platform=$build_for gcr.io/google.com/cloudsdktool/google-cloud-cli:slim AS gcloud-sdk
 
 ##
 # base image (abstract)
-FROM --platform=$build_for python:3.11.14-slim-bookworm as base
+FROM --platform=$build_for python:3.11.14-slim-bookworm AS base
 LABEL maintainer=support@fast.bi
+
+# Re-declare build arg so it is accessible in this stage
+ARG KUBECTL_VERSION
+
+# Copy Google Cloud SDK from the official image.
+# Strip all non-essential Go binaries to eliminate bundled CVEs:
+#   - anthoscli          CVE-2026-33186 (grpc) + CVE-2025-68121 (stdlib)
+#   - docker-credential-gcloud  CVE-2025-68121 (stdlib) — Docker registry helper, not used here
+# gke-gcloud-auth-plugin is retained for kubectl ↔ GKE authentication.
+COPY --from=gcloud-sdk /usr/lib/google-cloud-sdk /usr/lib/google-cloud-sdk
+RUN ln -sf /usr/lib/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud \
+    && ln -sf /usr/lib/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil \
+    && rm -f /usr/lib/google-cloud-sdk/bin/anthoscli \
+    && rm -f /usr/lib/google-cloud-sdk/bin/docker-credential-gcloud
 
 # System setup and dependencies installation
 RUN apt-get update \
@@ -17,25 +38,22 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
         ssh-client \
-        software-properties-common \
         make \
         build-essential \
         ca-certificates \
         libpq-dev \
         curl \
-        apt-transport-https \
         gnupg \
         cl-base64 \
         jq \
         uuid-runtime \
-    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
-    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
-    && apt-get update -y \
-    && apt-get install -y google-cloud-cli \
     # Install kubectl
-    && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && chmod +x kubectl \
-    && mv kubectl /usr/local/bin/ \
+    && curl -fsSLo /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+    && curl -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
+    && echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum -c - \
+    && chmod +x /tmp/kubectl \
+    && mv /tmp/kubectl /usr/local/bin/kubectl \
+    && rm -f /tmp/kubectl.sha256 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -49,7 +67,7 @@ ENV PYTHONIOENCODING=utf-8 \
 
 # Set docker basics
 WORKDIR /usr/app/tsb-data-orchestrator-core/
-LABEL maintainer=TeraSky(c)
+LABEL maintainer=Fast.BI(c)
 
 # Copy requirements first to leverage cache for pip install
 COPY ./requirements.txt /usr/app/tsb-data-orchestrator-core/

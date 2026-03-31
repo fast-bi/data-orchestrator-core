@@ -83,6 +83,7 @@ DBT_SEED = convert_to_lower(airflow_vars.get("DBT_SEED"))
 DBT_SEED_SHARDING = convert_to_lower(airflow_vars.get("DBT_SEED_SHARDING"))
 DBT_SOURCE = convert_to_lower(airflow_vars.get("DBT_SOURCE", "True"))
 DBT_SOURCE_SHARDING = convert_to_lower(airflow_vars.get("DBT_SOURCE_SHARDING", "True"))
+DBT_MODEL_SHARDING = convert_to_lower(airflow_vars.get("DBT_MODEL_SHARDING", "True"))
 DATA_QUALITY = convert_to_lower(airflow_vars.get("DATA_QUALITY"))
 DAG_OWNER = airflow_vars.get("DAG_OWNER", "fast.bi")
 DAG_START_DATE = airflow_vars.get("DAG_START_DATE", "days_ago(1)")
@@ -275,7 +276,8 @@ with models.DAG(
                                  "full_refresh_model_name": full_refresh_model_name_list})
                 task_list.append(dbt_seed_files)
             else:
-                dbt_seed_all_files = dag_parser.create_dbt_kuberoperator_task(
+                dbt_seed_all_files = dag_parser.create_dbt_batch_task(
+                    resource_type="seed",
                     dbt_command="seed",
                     running_rule=TriggerRule.ALL_SUCCESS,
                     task_params={"full_refresh": xcom_full_refresh_seed,
@@ -298,7 +300,8 @@ with models.DAG(
                                  "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
                 task_list.append(dbt_sources_models)
             else:
-                dbt_source_all_files = dag_parser.create_dbt_kuberoperator_task(
+                dbt_source_all_files = dag_parser.create_dbt_batch_task(
+                    resource_type="source",
                     dbt_command="source freshness",
                     running_rule=TriggerRule.ALL_SUCCESS,
                     task_params={"full_refresh": xcom_full_refresh_source,
@@ -307,15 +310,25 @@ with models.DAG(
                 task_list.append(dbt_source_all_files)
 
     if dag_parser.is_resource_type_in_manifest("model"):
-        dbt_run_models = dag_parser.create_dbt_task_groups(
-                    group_name="models",
-                    resource_type="model",
-                    dbt_command="run",
-                    running_rule=TriggerRule.ALL_SUCCESS,
-                    task_params={"full_refresh": xcom_full_refresh_model,
-                                 "full_refresh_model_name": full_refresh_model_name_list,
-                                 "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
-        task_list.append(dbt_run_models)
+        if DBT_MODEL_SHARDING == "true":
+            dbt_run_models = dag_parser.create_dbt_task_groups(
+                        group_name="models",
+                        resource_type="model",
+                        dbt_command="run",
+                        running_rule=TriggerRule.ALL_SUCCESS,
+                        task_params={"full_refresh": xcom_full_refresh_model,
+                                     "full_refresh_model_name": full_refresh_model_name_list,
+                                     "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
+            task_list.append(dbt_run_models)
+        else:
+            dbt_run_all_models = dag_parser.create_dbt_batch_task(
+                        resource_type="model",
+                        dbt_command="run",
+                        running_rule=TriggerRule.ALL_SUCCESS,
+                        task_params={"full_refresh": xcom_full_refresh_model,
+                                     "full_refresh_model_name": full_refresh_model_name_list,
+                                     "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
+            task_list.append(dbt_run_all_models)
 
     """ run method create_dbt_task that run command dbt snapshot
             snapshot: dbt command -> dbt snapshot
@@ -334,7 +347,8 @@ with models.DAG(
                 )
                 task_list.append(dbt_snapshot_models)
             else:
-                dbt_snapshot_all_models = dag_parser.create_dbt_kuberoperator_task(
+                dbt_snapshot_all_models = dag_parser.create_dbt_batch_task(
+                    resource_type="snapshot",
                     dbt_command="snapshot",
                     running_rule=TriggerRule.ALL_SUCCESS,
                     task_params={"full_refresh": xcom_full_refresh_snapshot,
