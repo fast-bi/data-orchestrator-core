@@ -5,6 +5,7 @@
 
 # Top level build args
 ARG build_for=linux/amd64
+ARG KUBECTL_VERSION=v1.33.0
 
 ##
 # base image (abstract)
@@ -33,9 +34,12 @@ RUN apt-get update \
     && apt-get update -y \
     && apt-get install -y google-cloud-cli \
     # Install kubectl
-    && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+    && curl -fsSLo /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+    && curl -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
+    && echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum -c - \
     && chmod +x kubectl \
-    && mv kubectl /usr/local/bin/ \
+    && mv /tmp/kubectl /usr/local/bin/kubectl \
+    && rm -f /tmp/kubectl.sha256 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
