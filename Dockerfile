@@ -8,9 +8,24 @@ ARG build_for=linux/amd64
 ARG KUBECTL_VERSION=v1.33.0
 
 ##
+# Pull Google Cloud SDK from the official image.
+# This avoids the brittle apt-key / packages.cloud.google.com setup entirely.
+FROM --platform=$build_for gcr.io/google.com/cloudsdktool/google-cloud-cli:slim AS gcloud-sdk
+
+##
 # base image (abstract)
 FROM --platform=$build_for python:3.11.14-slim-bookworm AS base
 LABEL maintainer=support@fast.bi
+
+# Re-declare build arg so it is accessible in this stage
+ARG KUBECTL_VERSION
+
+# Copy Google Cloud SDK from the official image.
+# Remove anthoscli to eliminate bundled CVEs: CVE-2026-33186 (grpc) and CVE-2025-68121 (stdlib).
+COPY --from=gcloud-sdk /usr/lib/google-cloud-sdk /usr/lib/google-cloud-sdk
+RUN ln -sf /usr/lib/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud \
+    && ln -sf /usr/lib/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil \
+    && rm -f /usr/lib/google-cloud-sdk/bin/anthoscli
 
 # System setup and dependencies installation
 RUN apt-get update \
@@ -27,15 +42,6 @@ RUN apt-get update \
         cl-base64 \
         jq \
         uuid-runtime \
-    # Set up Google Cloud SDK repo using modern gpg method (replaces deprecated apt-key)
-    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
-        | tee /etc/apt/sources.list.d/google-cloud-sdk.list \
-    && apt-get update -y \
-    && apt-get install -y --no-install-recommends google-cloud-cli \
-    # Remove anthoscli to eliminate bundled CVEs: CVE-2026-33186 (grpc) and CVE-2025-68121 (stdlib)
-    && rm -f /usr/lib/google-cloud-sdk/bin/anthoscli \
     # Install kubectl
     && curl -fsSLo /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     && curl -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
