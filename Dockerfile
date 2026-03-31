@@ -5,7 +5,8 @@
 
 # Top level build args
 ARG build_for=linux/amd64
-ARG KUBECTL_VERSION=v1.33.0
+# v1.35.0 uses Go 1.25.x which contains the fix for CVE-2025-68121 (stdlib crypto/tls)
+ARG KUBECTL_VERSION=v1.35.0
 
 ##
 # Pull Google Cloud SDK from the official image.
@@ -21,11 +22,15 @@ LABEL maintainer=support@fast.bi
 ARG KUBECTL_VERSION
 
 # Copy Google Cloud SDK from the official image.
-# Remove anthoscli to eliminate bundled CVEs: CVE-2026-33186 (grpc) and CVE-2025-68121 (stdlib).
+# Strip all non-essential Go binaries to eliminate bundled CVEs:
+#   - anthoscli          CVE-2026-33186 (grpc) + CVE-2025-68121 (stdlib)
+#   - docker-credential-gcloud  CVE-2025-68121 (stdlib) — Docker registry helper, not used here
+# gke-gcloud-auth-plugin is retained for kubectl ↔ GKE authentication.
 COPY --from=gcloud-sdk /usr/lib/google-cloud-sdk /usr/lib/google-cloud-sdk
 RUN ln -sf /usr/lib/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud \
     && ln -sf /usr/lib/google-cloud-sdk/bin/gsutil /usr/local/bin/gsutil \
-    && rm -f /usr/lib/google-cloud-sdk/bin/anthoscli
+    && rm -f /usr/lib/google-cloud-sdk/bin/anthoscli \
+    && rm -f /usr/lib/google-cloud-sdk/bin/docker-credential-gcloud
 
 # System setup and dependencies installation
 RUN apt-get update \
