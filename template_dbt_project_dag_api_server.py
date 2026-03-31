@@ -82,6 +82,7 @@ DBT_SEED = convert_to_lower(airflow_vars.get("DBT_SEED"))
 DBT_SEED_SHARDING = convert_to_lower(airflow_vars.get("DBT_SEED_SHARDING"))
 DBT_SOURCE = convert_to_lower(airflow_vars.get("DBT_SOURCE", "True"))
 DBT_SOURCE_SHARDING = convert_to_lower(airflow_vars.get("DBT_SOURCE_SHARDING", "True"))
+DBT_MODEL_SHARDING = convert_to_lower(airflow_vars.get("DBT_MODEL_SHARDING", "True"))
 DATA_QUALITY = convert_to_lower(airflow_vars.get("DATA_QUALITY"))
 DBT_PROJECT_NAME = airflow_vars.get("DBT_PROJECT_NAME")
 project_dir = f"/data/dbt_projects/{DBT_PROJECT_NAME}"
@@ -272,7 +273,8 @@ with models.DAG(
                                  "full_refresh_model_name": full_refresh_model_name_list })
                 task_list.append(dbt_seed_files)
             else:
-                dbt_seed_all_files = dag_parser.create_api_task(
+                dbt_seed_all_files = dag_parser.create_dbt_batch_task(
+                    resource_type="seed",
                     dbt_command="seed",
                     project_dir=project_dir,
                     running_rule=TriggerRule.ALL_SUCCESS,
@@ -296,7 +298,8 @@ with models.DAG(
                                  "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
                 task_list.append(dbt_sources_models)
             else:
-                dbt_source_all_files = dag_parser.create_api_task(
+                dbt_source_all_files = dag_parser.create_dbt_batch_task(
+                    resource_type="source",
                     dbt_command="freshness",
                     project_dir=project_dir,
                     running_rule=TriggerRule.ALL_SUCCESS,
@@ -305,16 +308,27 @@ with models.DAG(
                 task_list.append(dbt_source_all_files)
 
     if dag_parser.is_resource_type_in_manifest("model"):
-        dbt_run_models = dag_parser.create_dbt_task_groups(
-            group_name="models",
-            resource_type="model",
-            project_dir=project_dir,
-            dbt_command="run",
-            running_rule=TriggerRule.ALL_SUCCESS,
-            task_params={"full_refresh": full_refresh,
-                         "full_refresh_model_name": full_refresh_model_name_list,
-                         "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
-        task_list.append(dbt_run_models)
+        if DBT_MODEL_SHARDING == "true":
+            dbt_run_models = dag_parser.create_dbt_task_groups(
+                group_name="models",
+                resource_type="model",
+                project_dir=project_dir,
+                dbt_command="run",
+                running_rule=TriggerRule.ALL_SUCCESS,
+                task_params={"full_refresh": full_refresh,
+                             "full_refresh_model_name": full_refresh_model_name_list,
+                             "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
+            task_list.append(dbt_run_models)
+        else:
+            dbt_run_all_models = dag_parser.create_dbt_batch_task(
+                resource_type="model",
+                dbt_command="run",
+                project_dir=project_dir,
+                running_rule=TriggerRule.ALL_SUCCESS,
+                task_params={"full_refresh": full_refresh,
+                             "full_refresh_model_name": full_refresh_model_name_list,
+                             "DBT_VAR": "'execution_date': '" + xcom_execution_date + "'"})
+            task_list.append(dbt_run_all_models)
 
     """ run method create_dbt_task that run command dbt snapshot
             snapshot: dbt command -> dbt snapshot
@@ -332,7 +346,8 @@ with models.DAG(
                 )
                 task_list.append(dbt_snapshot_models)
             else:
-                dbt_snapshot_all_models = dag_parser.create_api_task(
+                dbt_snapshot_all_models = dag_parser.create_dbt_batch_task(
+                    resource_type="snapshot",
                     dbt_command="snapshot",
                     running_rule=TriggerRule.ALL_SUCCESS,
                     project_dir=project_dir
