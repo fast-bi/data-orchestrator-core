@@ -65,6 +65,7 @@ else:
 
 use_extra_e2e_pool = as_bool(airflow_vars.get("EXTRA_E2E_POOL"), default=False)
 task_queue = "e2e" if airflow_vars.get("TARGET") == "test" and use_extra_e2e_pool else None
+task_pool = "e2e_pool" if airflow_vars.get("TARGET") == "test" and use_extra_e2e_pool else None
 
 if airflow_vars["PLATFORM"].lower() == "airflow":
     DBT_DIR_DAG_LEVEL = f"/opt/airflow/dags/repo/dags/{DAG_FOLDER_NAME}"
@@ -179,6 +180,7 @@ with models.DAG(
             "retry_delay": timedelta(seconds=30),  # delay between retries
             "owner": DAG_OWNER,
             **({"queue": task_queue} if task_queue else {}),
+            **({"pool": task_pool} if task_pool else {}),
         },
         params={"full_refresh": Param(False, type="boolean"),
                 "model_name": "",
