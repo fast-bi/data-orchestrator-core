@@ -5,8 +5,8 @@
 
 # Top level build args
 ARG build_for=linux/amd64
-# v1.35.0 uses Go 1.25.x which contains the fix for CVE-2025-68121 (stdlib crypto/tls)
-ARG KUBECTL_VERSION=v1.35.0
+# v1.35.3 uses Go 1.25.7 which contains the fix for CVE-2025-68121 (stdlib crypto/tls)
+ARG KUBECTL_VERSION=v1.35.3
 
 ##
 # Pull Google Cloud SDK from the official image.
