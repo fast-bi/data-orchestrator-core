@@ -9,7 +9,7 @@ ARG KUBECTL_VERSION=v1.33.0
 
 ##
 # base image (abstract)
-FROM --platform=$build_for python:3.11.14-slim-bookworm as base
+FROM --platform=$build_for python:3.11.14-slim-bookworm AS base
 LABEL maintainer=support@fast.bi
 
 # System setup and dependencies installation
@@ -18,26 +18,29 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         git \
         ssh-client \
-        software-properties-common \
         make \
         build-essential \
         ca-certificates \
         libpq-dev \
         curl \
-        apt-transport-https \
         gnupg \
         cl-base64 \
         jq \
         uuid-runtime \
-    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
-    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
+    # Set up Google Cloud SDK repo using modern gpg method (replaces deprecated apt-key)
+    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+        | tee /etc/apt/sources.list.d/google-cloud-sdk.list \
     && apt-get update -y \
-    && apt-get install -y google-cloud-cli \
+    && apt-get install -y --no-install-recommends google-cloud-cli \
+    # Remove anthoscli to eliminate bundled CVEs: CVE-2026-33186 (grpc) and CVE-2025-68121 (stdlib)
+    && rm -f /usr/lib/google-cloud-sdk/bin/anthoscli \
     # Install kubectl
     && curl -fsSLo /tmp/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     && curl -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
     && echo "$(cat /tmp/kubectl.sha256)  /tmp/kubectl" | sha256sum -c - \
-    && chmod +x kubectl \
+    && chmod +x /tmp/kubectl \
     && mv /tmp/kubectl /usr/local/bin/kubectl \
     && rm -f /tmp/kubectl.sha256 \
     && apt-get clean \
@@ -53,7 +56,7 @@ ENV PYTHONIOENCODING=utf-8 \
 
 # Set docker basics
 WORKDIR /usr/app/tsb-data-orchestrator-core/
-LABEL maintainer=TeraSky(c)
+LABEL maintainer=Fast.BI(c)
 
 # Copy requirements first to leverage cache for pip install
 COPY ./requirements.txt /usr/app/tsb-data-orchestrator-core/
