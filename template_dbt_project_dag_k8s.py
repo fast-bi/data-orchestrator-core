@@ -105,7 +105,12 @@ if not isinstance(AIRBYTE_CONNECTION_IDS, list):
     AIRBYTE_CONNECTION_IDS = [AIRBYTE_CONNECTION_IDS]
 
 # Project level variables
-DAG_SCHEDULE_INTERVAL = airflow_vars.get("DAG_SCHEDULE_INTERVAL")
+use_controller = airflow_vars.get("USE_CONTROLLER", None)
+
+DAG_SCHEDULE_INTERVAL = (
+    None if use_controller is not None
+    else airflow_vars.get("DAG_SCHEDULE_INTERVAL")
+)
 # EXTERNAL_RUN_DATETIME_FORMAT = "%Y-%m-%d"
 # AIRFLOW_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S.%f+00:00"
 
