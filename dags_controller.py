@@ -6,9 +6,22 @@ import re
 
 from airflow import DAG
 from airflow.models import Variable
-from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
-from airflow.providers.standard.operators.python import ShortCircuitOperator
-
+try:
+    from airflow.providers.standard.operators.python import (
+        PythonOperator,
+        ShortCircuitOperator,
+    )
+except ModuleNotFoundError:
+    from airflow.operators.python import (
+        PythonOperator,
+        ShortCircuitOperator,
+    )
+try:
+    # Airflow 3
+    from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+except ModuleNotFoundError:
+    # Airflow 2
+    from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 # Load YAML config
 CONFIG_FILE = Variable.get(
@@ -48,11 +61,13 @@ def parse_start_date(start_date_str, tz="UTC"):
 
 
 # Controller config
-dag_id = controller_config.get("DAG_ID", "dags_controller")
+dag_id = controller_config.get("DAG_ID", project_name+"_"+"dags_controller")
+
+#dag_id = controller_config.get("DAG_ID", "dags_controller")
 schedule = controller_config.get("DAG_SCHEDULE_INTERVAL", "*/30 * * * *")
 catchup = controller_config.get("CATCHUP", False)
 max_active_runs = controller_config.get("MAX_ACTIVE_RUNS", 1)
-tags = controller_config.get("TAGS", ["dynamic", "controller"])
+tags = controller_config.get("TAGS", ["dynamic", project_name+"_dag_controller"])
 
 tz = controller_config.get("TIMEZONE", "UTC")
 start_date_str = controller_config.get("START_DATE", "days_ago(1)")
@@ -65,7 +80,7 @@ def cron_to_condition(cron_expr, timezone="Europe/Vilnius"):
     cron_expr = cron_expr.strip()
 
     def _inner(**context):
-        logical_date = context["logical_date"].in_timezone(timezone)
+        logical_date = context["data_interval_end"].in_timezone(timezone)
 
         # handle presets
         if cron_expr == "@hourly":
@@ -122,7 +137,7 @@ with DAG(
     # Create tasks dynamically
     for dag_name, dag_conf in controlled_dags.items():
         dag_id = dag_conf["DAG_ID"]
-        schedule = dag_conf["DAG_SCHEDULE_INTERVAL"]
+        schedule = dag_conf.get("DAG_SCHEDULE_INTERVAL")
 
         if not schedule:
             raise ValueError(
