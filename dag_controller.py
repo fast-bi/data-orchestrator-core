@@ -26,7 +26,7 @@ except ModuleNotFoundError:
 # Load YAML config
 CONFIG_FILE = Variable.get(
     "DAG_CONFIG_FILE",
-    default_var="dynamic_dag_config.yml"
+    "dynamic_dag_config.yml"
 )
 
 # get project name from folder
