@@ -3,7 +3,7 @@ import yaml
 from pathlib import Path
 import pendulum
 import re
-
+from datetime import timedelta
 from airflow import DAG
 from airflow.models import Variable
 try:
@@ -26,7 +26,7 @@ except ModuleNotFoundError:
 # Load YAML config
 CONFIG_FILE = Variable.get(
     "DAG_CONFIG_FILE",
-    "dynamic_dag_config.yml"
+    default_var="dynamic_dag_config.yml"
 )
 
 # get project name from folder
@@ -73,6 +73,8 @@ tz = controller_config.get("TIMEZONE", "UTC")
 start_date_str = controller_config.get("START_DATE", "days_ago(1)")
 
 start_date = parse_start_date(start_date_str, tz)
+DAG_OWNER = controller_config.get("DAG_OWNER", "airflow")
+DAG_RETRIES = controller_config.get("DAG_RETRIES", 2)
 
 
 # Cron → condition logic
@@ -130,6 +132,11 @@ with DAG(
     catchup=catchup,
     max_active_runs=max_active_runs,
     tags=tags,
+    default_args={
+            "retries": DAG_RETRIES,
+            "retry_delay": timedelta(seconds=30),
+            "owner": DAG_OWNER
+        },
 ) as dag:
 
     tasks = {}
@@ -172,3 +179,4 @@ with DAG(
                 continue  # skip non-controller DAGs
 
             tasks[parent]["trigger"] >> tasks[dag_name]["condition"]
+
