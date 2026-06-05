@@ -100,6 +100,7 @@ DBT_SOURCE = convert_to_lower(airflow_vars.get("DBT_SOURCE", "True"))
 DBT_SOURCE_SHARDING = convert_to_lower(airflow_vars.get("DBT_SOURCE_SHARDING", "True"))
 DBT_MODEL = convert_to_lower(airflow_vars.get("DBT_MODEL", "True"))
 DBT_MODEL_SHARDING = convert_to_lower(airflow_vars.get("DBT_MODEL_SHARDING", "True"))
+DBT_MODEL_DEPENDS_ON_SNAPSHOT = convert_to_lower(airflow_vars.get("DBT_MODEL_DEPENDS_ON_SNAPSHOT", "False"))
 DBT_DEPS = convert_to_lower(airflow_vars.get("DBT_DEPS", "True"))
 DATA_QUALITY = convert_to_lower(airflow_vars.get("DATA_QUALITY"))
 DAG_OWNER = airflow_vars.get("DAG_OWNER", "fast.bi")
@@ -306,6 +307,24 @@ with models.DAG(
         DBT_SNAPSHOT = "false" if full_refresh_model_name_list and DBT_SNAPSHOT_SHARDING == "false" else DBT_SNAPSHOT
         DBT_SOURCE = "false" if full_refresh_model_name_list and DBT_SOURCE_SHARDING == "false" else DBT_SOURCE
 
+    # Batch-mode snapshot dependency handling.
+    # When models run as a single batch (DBT_MODEL_SHARDING=false) a plain
+    # `dbt run` cannot include snapshots, so a `model -> snapshot -> model` chain
+    # would run the downstream model before the snapshot. If DBT_MODEL_DEPENDS_ON_SNAPSHOT
+    # is enabled and a model actually depends on a snapshot, we replace the separate
+    # model-run + snapshot batches with a single `dbt build` (which orders models,
+    # snapshots and tests by lineage in one process). Sharded mode is unaffected.
+    use_build_batch = (
+        DBT_MODEL == "true"
+        and DBT_MODEL_SHARDING != "true"
+        and DBT_MODEL_DEPENDS_ON_SNAPSHOT == "true"
+        and dag_parser.is_resource_type_in_manifest("snapshot")
+        and dag_parser.manifest_has_model_depends_on_snapshot()
+    )
+    if use_build_batch:
+        log.info("DBT_MODEL_DEPENDS_ON_SNAPSHOT batch mode: using a single 'dbt build' "
+                 "for models + snapshots so snapshot ordering is preserved.")
+
     if dag_parser.is_resource_type_in_manifest("seed"):
         if DBT_SEED == "true":
             if DBT_SEED_SHARDING == "true":
@@ -353,7 +372,16 @@ with models.DAG(
 
     if dag_parser.is_resource_type_in_manifest("model"):
         if DBT_MODEL == "true":
-            if DBT_MODEL_SHARDING == "true":
+            if use_build_batch:
+                # Single `dbt build` over models + snapshots (interleaved by lineage).
+                # The separate snapshot batch below is skipped to avoid re-running it.
+                dbt_build_all_models = dag_parser.create_dbt_build_batch_task(
+                    running_rule=TriggerRule.ALL_SUCCESS,
+                    task_params={"full_refresh": xcom_full_refresh_model,
+                                 "full_refresh_model_name": full_refresh_model_name_list,
+                                 "DBT_VAR": '{execution_date: ' + xcom_execution_date + '}'})
+                task_list.append(dbt_build_all_models)
+            elif DBT_MODEL_SHARDING == "true":
                 dbt_run_models = dag_parser.create_dbt_task_groups(
                     group_name="models",
                     resource_type="model",
@@ -378,7 +406,7 @@ with models.DAG(
     """ run method create_dbt_task that run command dbt snapshot
             snapshot: dbt command -> dbt snapshot
     """
-    if dag_parser.is_resource_type_in_manifest("snapshot"):
+    if dag_parser.is_resource_type_in_manifest("snapshot") and not use_build_batch:
         if DBT_SNAPSHOT == "true":
             if DBT_SNAPSHOT_SHARDING == "true":
                 dbt_snapshot_models = dag_parser.create_dbt_task_groups(
