@@ -105,6 +105,9 @@ DBT_DEPS = convert_to_lower(airflow_vars.get("DBT_DEPS", "True"))
 DATA_QUALITY = convert_to_lower(airflow_vars.get("DATA_QUALITY"))
 DAG_OWNER = airflow_vars.get("DAG_OWNER", "fast.bi")
 DAG_START_DATE = airflow_vars.get("DAG_START_DATE", "days_ago(1)")
+# When True with ancestors/descendants: skip parent/child models that are tagged
+# for another DAG (so they are not re-run here after already running there).
+DBT_SKIP_FOREIGN_TAGGED_ANCESTORS = airflow_vars.get("DBT_SKIP_FOREIGN_TAGGED_ANCESTORS", "True")
 
 
 # Cluster variables
@@ -152,7 +155,8 @@ dag_parser = DbtManifestParser(
     airflow_vars=airflow_vars,
     debug=airflow_vars.get("DEBUG", "").lower() == "true",  # Get DEBUG flag from Airflow variables
     dbt_tag_ancestors=DBT_TAG_ANCESTORS,
-    dbt_tag_descendants=DBT_TAG_DESENDANTS
+    dbt_tag_descendants=DBT_TAG_DESENDANTS,
+    dbt_skip_foreign_tagged_ancestors=DBT_SKIP_FOREIGN_TAGGED_ANCESTORS
 )
 # Validate START_DATE
 try:
@@ -413,7 +417,7 @@ with models.DAG(
                     group_name="snapshots",
                     resource_type="snapshot",
                     dbt_command="snapshot",
-                    running_rule=TriggerRule.ALL_SUCCESS,
+                    running_rule=TriggerRule.ALL_DONE,
                     task_params={"full_refresh": xcom_full_refresh_snapshot,
                                  "full_refresh_model_name": full_refresh_model_name_list}
                     # , Variable.get(PROJECT_VARS_LIST, deserialize_json=True)
@@ -423,7 +427,7 @@ with models.DAG(
                 dbt_snapshot_all_models = dag_parser.create_dbt_batch_task(
                     resource_type="snapshot",
                     dbt_command="snapshot",
-                    running_rule=TriggerRule.ALL_SUCCESS,
+                    running_rule=TriggerRule.ALL_DONE,
                     task_params={"full_refresh": xcom_full_refresh_snapshot,
                                  "full_refresh_model_name": full_refresh_model_name_list}
                     # , Variable.get(PROJECT_VARS_LIST, deserialize_json=True)
