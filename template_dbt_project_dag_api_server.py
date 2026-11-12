@@ -91,6 +91,10 @@ project_dir = f"/data/dbt_projects/{DBT_PROJECT_NAME}"
 CONNECTION_ID = airflow_vars.get("DBT_WORKLOAD_API_CONNECTION_ID")
 DAG_OWNER = airflow_vars.get("DAG_OWNER", "fast.bi")
 DAG_START_DATE = airflow_vars.get("DAG_START_DATE", "days_ago(1)")
+# When True with ancestors/descendants: skip parent/child models that are tagged
+# for another DAG (so they are not re-run here after already running there).
+DBT_SKIP_FOREIGN_TAGGED_ANCESTORS = airflow_vars.get("DBT_SKIP_FOREIGN_TAGGED_ANCESTORS", "True")
+
 
 AIRBYTE_REPLICATION_FLAG = airflow_vars.get("AIRBYTE_REPLICATION_FLAG", "False")
 if isinstance(AIRBYTE_REPLICATION_FLAG, str) and AIRBYTE_REPLICATION_FLAG.lower() == "true":
@@ -141,7 +145,8 @@ dag_parser = DbtManifestParser(
     namespace=NAMESPACE,
     connection_id=CONNECTION_ID,
     dbt_tag_ancestors=DBT_TAG_ANCESTORS,
-    dbt_tag_descendants=DBT_TAG_DESENDANTS
+    dbt_tag_descendants=DBT_TAG_DESENDANTS,
+    dbt_skip_foreign_tagged_ancestors=DBT_SKIP_FOREIGN_TAGGED_ANCESTORS
 )
 
 # Validate START_DATE
@@ -378,7 +383,7 @@ with models.DAG(
                     resource_type="snapshot",
                     project_dir=project_dir,
                     dbt_command="snapshot",
-                    running_rule=TriggerRule.ALL_SUCCESS
+                    running_rule=TriggerRule.ALL_DONE
                     # , Variable.get(PROJECT_VARS_LIST, deserialize_json=True)
                 )
                 task_list.append(dbt_snapshot_models)
@@ -386,7 +391,7 @@ with models.DAG(
                 dbt_snapshot_all_models = dag_parser.create_dbt_batch_task(
                     resource_type="snapshot",
                     dbt_command="snapshot",
-                    running_rule=TriggerRule.ALL_SUCCESS,
+                    running_rule=TriggerRule.ALL_DONE,
                     project_dir=project_dir
                     # , Variable.get(PROJECT_VARS_LIST, deserialize_json=True)
                 )
