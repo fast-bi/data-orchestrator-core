@@ -91,7 +91,7 @@ DAG_OWNER = airflow_vars.get("DAG_OWNER", "fast.bi")
 DAG_START_DATE = airflow_vars.get("DAG_START_DATE", "days_ago(1)")
 # When True with ancestors/descendants: skip parent/child models that are tagged
 # for another DAG (so they are not re-run here after already running there).
-DBT_SKIP_FOREIGN_TAGGED_ANCESTORS = airflow_vars.get("DBT_SKIP_FOREIGN_TAGGED_ANCESTORS", "True")
+DBT_SKIP_FOREIGN_TAGGED_ANCESTORS = airflow_vars.get("DBT_SKIP_FOREIGN_TAGGED_ANCESTORS", "False")
 
 
 
